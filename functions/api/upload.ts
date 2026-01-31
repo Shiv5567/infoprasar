@@ -1,14 +1,12 @@
 
-// Define Cloudflare specific types to resolve 'Cannot find name' errors
 type R2Bucket = any;
 type PagesFunction<T = any> = any;
 
 interface Env {
-  MEDIA_BUCKET: R2Bucket;
-  PUBLIC_URL: string;
+  Infoprasar_R2: R2Bucket;
+  PUBLIC_URL: string; // The public URL pointing to the Infoprasar_R2 bucket (via Custom Domain or Worker)
 }
 
-// Fixed 'PagesFunction' and 'R2Bucket' missing type errors
 export const onRequest: PagesFunction<Env> = async (context: any) => {
   const { request, env } = context;
 
@@ -26,12 +24,16 @@ export const onRequest: PagesFunction<Env> = async (context: any) => {
     return new Response('No file uploaded', { status: 400 });
   }
 
+  // Create a unique filename and store it in the media/ directory
   const filename = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`;
-  await env.MEDIA_BUCKET.put(`uploads/${filename}`, file.stream(), {
+  await env.Infoprasar_R2.put(`media/${filename}`, file.stream(), {
     httpMetadata: { contentType: file.type }
   });
 
-  const url = `${env.PUBLIC_URL}/uploads/${filename}`;
+  // Construct the final public URL
+  // Ensure PUBLIC_URL environment variable is set in Cloudflare Pages dashboard
+  const baseUrl = env.PUBLIC_URL || '';
+  const url = `${baseUrl}/media/${filename}`;
 
   return new Response(JSON.stringify({ url }), {
     headers: { 'Content-Type': 'application/json' }

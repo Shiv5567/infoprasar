@@ -1,31 +1,28 @@
 
-// Define Cloudflare specific types to resolve 'Cannot find name' errors
 type R2Bucket = any;
 type PagesFunction<T = any> = any;
 
 interface Env {
-  DATA_BUCKET: R2Bucket;
-  AUTH_SECRET: string;
+  Infoprasar_R2: R2Bucket;
 }
 
-// Fixed 'PagesFunction' and 'R2Bucket' missing type errors
 export const onRequest: PagesFunction<Env> = async (context: any) => {
   const { request, env } = context;
   const url = new URL(request.url);
   const type = url.searchParams.get('type') || 'blog';
 
-  // GET: Fetch list or detail
+  // GET: Fetch list or detail from R2
   if (request.method === 'GET') {
     const path = url.pathname.split('/').pop();
     
     if (path === 'content') {
-      // Fetch index list
-      const obj = await env.DATA_BUCKET.get(`lists/${type}.json`);
+      // Fetch index list from data/lists/
+      const obj = await env.Infoprasar_R2.get(`data/lists/${type}.json`);
       if (!obj) return new Response(JSON.stringify([]), { headers: { 'Content-Type': 'application/json' } });
       return new Response(obj.body, { headers: { 'Content-Type': 'application/json' } });
     } else {
-      // Fetch detail by slug/id
-      const obj = await env.DATA_BUCKET.get(`details/${type}/${path}.json`);
+      // Fetch detail by slug/id from data/details/
+      const obj = await env.Infoprasar_R2.get(`data/details/${type}/${path}.json`);
       if (!obj) return new Response('Not Found', { status: 404 });
       return new Response(obj.body, { headers: { 'Content-Type': 'application/json' } });
     }
@@ -37,26 +34,28 @@ export const onRequest: PagesFunction<Env> = async (context: any) => {
     if (!authHeader) return new Response('Unauthorized', { status: 401 });
 
     const body = await request.json() as any;
-    const { type, data, id } = body;
+    const { type: contentType, data, id } = body;
     const slug = data.slug;
 
-    // 1. Save detail file
-    await env.DATA_BUCKET.put(`details/${type}/${slug}.json`, JSON.stringify(data), {
+    // 1. Save detail file to R2
+    await env.Infoprasar_R2.put(`data/details/${contentType}/${slug}.json`, JSON.stringify(data), {
       customMetadata: { contentType: 'application/json' }
     });
 
-    // 2. Update list index
-    const listObj = await env.DATA_BUCKET.get(`lists/${type}.json`);
+    // 2. Update list index in R2
+    const listObj = await env.Infoprasar_R2.get(`data/lists/${contentType}.json`);
     let list = listObj ? await listObj.json() : [];
     
-    // Explicitly typed parameters for filter/map to avoid implicit any errors
-    if (id || list.find((i: any) => i.slug === slug)) {
-      list = list.map((item: any) => item.slug === slug ? { ...data, content: undefined } : item);
+    const index = list.findIndex((item: any) => item.slug === slug);
+    const listItem = { ...data, content: undefined }; // Optimize list size
+
+    if (index !== -1) {
+      list[index] = listItem;
     } else {
-      list.unshift({ ...data, content: undefined }); // Remove full content from index for performance
+      list.unshift(listItem);
     }
 
-    await env.DATA_BUCKET.put(`lists/${type}.json`, JSON.stringify(list));
+    await env.Infoprasar_R2.put(`data/lists/${contentType}.json`, JSON.stringify(list));
 
     return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
   }
